@@ -165,7 +165,7 @@ func errorHandler(c *fiber.Ctx, err error) error {
 }
 
 func main() {
-	app, err := NewApp("./GeoLite2-City.mmdb", "./IP2LOCATION-LITE-DB11.BIN")
+	app, err := NewApp("./MaxMind.mmdb", "./IP2LOCATION.BIN")
 	if err != nil {
 		log.Fatal(err)
 	}
