@@ -13,17 +13,17 @@ cd $PROJECT_DIR || { echo "Project directory not found!"; exit 1; }
 echo "Pulling the latest codebase..."
 git pull origin main || { echo "Git pull failed!"; exit 1; }
 
-# Step 3: Build the Go application
+# Step 3: Stop the service before building
+echo "Stopping the $SERVICE_NAME service..."
+sudo systemctl stop $SERVICE_NAME || { echo "Failed to stop the service!"; exit 1; }
+
+# Step 4: Build the Go application
 echo "Building the Go application..."
 GOOS=linux GOARCH=arm64 go build -o /usr/local/bin/$BINARY_NAME || { echo "Build failed!"; exit 1; }
 
-# Step 4: Reload systemd to recognize changes (optional, if service file changes)
-echo "Reloading systemd..."
-sudo systemctl daemon-reload || { echo "Systemd daemon-reload failed!"; exit 1; }
-
 # Step 5: Restart the systemd service
 echo "Restarting the $SERVICE_NAME service..."
-sudo systemctl restart $SERVICE_NAME || { echo "Failed to restart the service!"; exit 1; }
+sudo systemctl start $SERVICE_NAME || { echo "Failed to restart the service!"; exit 1; }
 
 # Step 6: Verify the service status
 echo "Verifying the service status..."
