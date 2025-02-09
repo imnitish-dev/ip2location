@@ -1,0 +1,17 @@
+[Unit]
+Description=IP2Location Go Service
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/ip2location
+WorkingDirectory=/home/ubuntu/go-app/ip2location
+Restart=always
+User=ubuntu
+Group=ubuntu
+EnvironmentFile=/home/ubuntu/go-app/ip2location/.env
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=ip2location
+
+[Install]
+WantedBy=multi-user.target

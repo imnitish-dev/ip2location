@@ -256,7 +256,7 @@ func main() {
 
 	// Start server
 	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
-	log.Printf("Server starting on %s", address)
+	log.Printf("Server starting on %s!", address)
 
 	if err := app.fiber.Listen(address); err != nil {
 		log.Fatal(err)
