@@ -1,7 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"net"
+	"net/url"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -9,7 +14,48 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/imnitish-dev/ip2location/ip2location"
+	"github.com/joho/godotenv"
 )
+
+// Config holds the application configuration
+type Config struct {
+	Port            string
+	Host            string
+	MaxMindDBPath   string
+	IP2LocationPath string
+}
+
+// loadConfig loads the configuration from environment variables
+func loadConfig() (*Config, error) {
+	env := getEnv("ENV", "development")
+	envFile := fmt.Sprintf(".env.%s", env)
+
+	// Try environment-specific file first
+	if err := godotenv.Load(envFile); err != nil {
+		// Fall back to default .env
+		if err := godotenv.Load(); err != nil {
+			log.Printf("Warning: no .env file found, using environment variables")
+		}
+	}
+
+	config := &Config{
+		Port:            getEnv("PORT", "3000"),
+		Host:            getEnv("HOST", "0.0.0.0"),
+		MaxMindDBPath:   "./MaxMind.mmdb",
+		IP2LocationPath: "./IP2LOCATION.BIN",
+	}
+
+	return config, nil
+}
+
+// getEnv gets an environment variable or returns a default value
+func getEnv(key, defaultValue string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return defaultValue
+	}
+	return value
+}
 
 // Response holds the API response structure
 type Response struct {
@@ -29,13 +75,13 @@ type App struct {
 func NewApp(maxmindPath, ip2locPath string) (*App, error) {
 	maxmindService, err := ip2location.NewService(ip2location.MaxMindProvider, maxmindPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize MaxMind service: %w", err)
 	}
 
 	ip2locService, err := ip2location.NewService(ip2location.IP2LocationProvider, ip2locPath)
 	if err != nil {
 		maxmindService.Close() // Clean up if second init fails
-		return nil, err
+		return nil, fmt.Errorf("failed to initialize IP2Location service: %w", err)
 	}
 
 	app := &App{
@@ -45,7 +91,7 @@ func NewApp(maxmindPath, ip2locPath string) (*App, error) {
 			ErrorHandler: errorHandler,
 			// Optimize for JSON responses
 			JSONEncoder: json.Marshal,
-		JSONDecoder: json.Unmarshal,
+			JSONDecoder: json.Unmarshal,
 			// Disable startup message
 			DisableStartupMessage: true,
 		}),
@@ -76,9 +122,39 @@ func (a *App) setupRoutes() {
 	a.fiber.Get("/health", handleHealth)
 }
 
+func sanitizeIP(rawIp string) (string, error) {
+	ip, err := url.QueryUnescape(rawIp)
+	if err != nil {
+		return "", err
+	}
+
+	// Retrieve IP parameter
+	ip = strings.TrimSpace(ip)
+	// Remove spaces
+	ip = strings.TrimSpace(ip)
+	
+	// URL encode the IP
+	ip = url.QueryEscape(ip)
+	
+	// Remove dashes and replace with dots
+	ip = strings.ReplaceAll(ip, "-", ".")
+	
+	// Validate IP address format
+	if net.ParseIP(ip) == nil {
+		return "", fmt.Errorf("invalid IP address format")
+	}
+	
+	return ip, nil
+}
+
 func (a *App) handleIPLookup(c *fiber.Ctx) error {
-	ip := c.Params("ip")
-	maxmindLoc, ip2locLoc := a.lookupConcurrent( ip)
+	ip, err := sanitizeIP(c.Params("ip"))
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(Response{
+			Message: err.Error(),
+		})
+	}
+	maxmindLoc, ip2locLoc := a.lookupConcurrent(ip)
 
 	// If both lookups failed
 	if maxmindLoc == nil && ip2locLoc == nil {
@@ -93,7 +169,7 @@ func (a *App) handleIPLookup(c *fiber.Ctx) error {
 	})
 }
 
-func (a *App) lookupConcurrent( ip string) (*ip2location.Location, *ip2location.Location) {
+func (a *App) lookupConcurrent(ip string) (*ip2location.Location, *ip2location.Location) {
 	var (
 		wg          sync.WaitGroup
 		maxmindLoc  *ip2location.Location
@@ -165,14 +241,24 @@ func errorHandler(c *fiber.Ctx, err error) error {
 }
 
 func main() {
-	app, err := NewApp("./MaxMind.mmdb", "./IP2LOCATION.BIN")
+	// Load configuration
+	config, err := loadConfig()
+	if err != nil {
+		log.Fatal("Failed to load configuration:", err)
+	}
+
+	// Initialize application
+	app, err := NewApp(config.MaxMindDBPath, config.IP2LocationPath)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer app.Close()
 
-	log.Println("Server starting on :3000")
-	if err := app.fiber.Listen(":3000"); err != nil {
+	// Start server
+	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
+	log.Printf("Server starting on %s", address)
+
+	if err := app.fiber.Listen(address); err != nil {
 		log.Fatal(err)
 	}
 } 

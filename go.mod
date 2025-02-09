@@ -5,6 +5,7 @@ go 1.20
 require (
 	github.com/gofiber/fiber/v2 v2.52.0
 	github.com/ip2location/ip2location-go/v9 v9.7.0
+	github.com/joho/godotenv v1.5.1
 	github.com/oschwald/geoip2-golang v1.9.0
 )
 

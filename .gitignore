@@ -1,4 +1,15 @@
+# Databases
+*.mmdb
+*.BIN
 
-IP2LOCATION.BIN
-MaxMind.mmdb
+# Logs
+*.log
+
+# Environment variables
 .env
+
+# Downloaded files
+downloads/
+
+# Binary
+ip2location
