@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net"
@@ -14,7 +15,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	"github.com/imnitish-dev/ip2location/ip2location"
+	pb "github.com/imnitish-dev/ip2location/proto"
 	"github.com/joho/godotenv"
+	"google.golang.org/grpc"
 )
 
 // Config holds the application configuration
@@ -23,6 +26,7 @@ type Config struct {
 	Host            string
 	MaxMindDBPath   string
 	IP2LocationPath string
+	GRPCPort        string
 }
 
 // loadConfig loads the configuration from environment variables
@@ -41,8 +45,9 @@ func loadConfig() (*Config, error) {
 	config := &Config{
 		Port:            getEnv("PORT", "3000"),
 		Host:            getEnv("HOST", "0.0.0.0"),
-		MaxMindDBPath:   "./MaxMind.mmdb",
-		IP2LocationPath: "./IP2LOCATION.BIN",
+		MaxMindDBPath:   getEnv("MAXMIND_DB_PATH", "./MaxMind.mmdb"),
+		IP2LocationPath: getEnv("IP2LOCATION_DB_PATH", "./IP2LOCATION.BIN"),
+		GRPCPort:        getEnv("GRPC_PORT", "50051"),
 	}
 
 	return config, nil
@@ -240,6 +245,48 @@ func errorHandler(c *fiber.Ctx, err error) error {
 	})
 }
 
+// GRPCServer implements the gRPC service
+type GRPCServer struct {
+	pb.UnimplementedIP2LocationServiceServer
+	app *App
+}
+
+// LookupIP implements the gRPC lookup method
+func (s *GRPCServer) LookupIP(ctx context.Context, req *pb.LookupRequest) (*pb.LookupResponse, error) {
+	maxmindLoc, ip2locLoc := s.app.lookupConcurrent(req.Ip)
+
+	response := &pb.LookupResponse{}
+
+	if maxmindLoc == nil && ip2locLoc == nil {
+		response.Message = "Failed to lookup IP address"
+		return response, nil
+	}
+
+	if maxmindLoc != nil {
+		response.Maxmind = &pb.Location{
+			Country:     maxmindLoc.Country,
+			City:       maxmindLoc.City,
+			Region:     maxmindLoc.Region,
+			Latitude:   maxmindLoc.Latitude,
+			Longitude:  maxmindLoc.Longitude,
+			CountryCode: maxmindLoc.CountryCode,
+		}
+	}
+
+	if ip2locLoc != nil {
+		response.Ip2Location = &pb.Location{
+			Country:     ip2locLoc.Country,
+			City:       ip2locLoc.City,
+			Region:     ip2locLoc.Region,
+			Latitude:   ip2locLoc.Latitude,
+			Longitude:  ip2locLoc.Longitude,
+			CountryCode: ip2locLoc.CountryCode,
+		}
+	}
+
+	return response, nil
+}
+
 func main() {
 	// Load configuration
 	config, err := loadConfig()
@@ -254,9 +301,26 @@ func main() {
 	}
 	defer app.Close()
 
-	// Start server
+	// Start gRPC server
+	go func() {
+		grpcAddr := fmt.Sprintf("%s:%s", config.Host, config.GRPCPort)
+		lis, err := net.Listen("tcp", grpcAddr)
+		if err != nil {
+			log.Fatalf("Failed to listen for gRPC: %v", err)
+		}
+
+		grpcServer := grpc.NewServer()
+		pb.RegisterIP2LocationServiceServer(grpcServer, &GRPCServer{app: app})
+
+		log.Printf("gRPC server starting on %s", grpcAddr)
+		if err := grpcServer.Serve(lis); err != nil {
+			log.Fatalf("Failed to serve gRPC: %v", err)
+		}
+	}()
+
+	// Start HTTP server
 	address := fmt.Sprintf("%s:%s", config.Host, config.Port)
-	log.Printf("Server starting on %s!", address)
+	log.Printf("HTTP server starting on %s!", address)
 
 	if err := app.fiber.Listen(address); err != nil {
 		log.Fatal(err)

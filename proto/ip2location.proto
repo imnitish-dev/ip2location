@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package ip2location;
+option go_package = "github.com/imnitish-dev/ip2location/proto";
+
+service IP2LocationService {
+  rpc LookupIP (LookupRequest) returns (LookupResponse) {}
+}
+
+message LookupRequest {
+  string ip = 1;
+}
+
+message Location {
+  string country = 1;
+  string city = 2;
+  string region = 3;
+  double latitude = 4;
+  double longitude = 5;
+  string country_code = 6;
+}
+
+message LookupResponse {
+  Location maxmind = 2;
+  Location ip2location = 3;
+} 
