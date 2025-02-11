@@ -3,10 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
+
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +128,7 @@ func (a *App) setupRoutes() {
 	// Define routes
 	a.fiber.Get("/lookup/:ip", a.handleIPLookup)
 	a.fiber.Get("/health", handleHealth)
+	a.fiber.Get("/", a.handleIp)
 }
 
 func sanitizeIP(rawIp string) (string, error) {
@@ -233,6 +237,83 @@ func handleHealth(c *fiber.Ctx) error {
 	return c.JSON(Response{
 		Message: "Service is healthy",
 	})
+}
+
+func (a *App) handleIp(c *fiber.Ctx) error {
+	// Get client IP with fallback logic
+	ip := getClientIP(c)
+	
+	// Only proceed with external IP lookup if needed
+	if isLocalIP(ip) {
+		ip = getPublicIP()
+	}
+	
+	// If we couldn't determine the IP, return error
+	if ip == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(Response{
+			Message: "Could not determine valid IP address",
+		})
+	}
+
+	// Concurrent lookup using existing IP
+	maxmindLoc, ip2locLoc := a.lookupConcurrent(ip)
+
+	if maxmindLoc == nil && ip2locLoc == nil {
+		return c.Status(fiber.StatusBadRequest).JSON(Response{
+			Message: "Failed to lookup IP address",
+		})
+	}
+
+	return c.JSON(Response{
+		MaxMind:     maxmindLoc,
+		IP2Location: ip2locLoc,
+	})
+}
+
+// getClientIP attempts to get the real client IP from various headers
+func getClientIP(c *fiber.Ctx) string {
+	// First try the standard IP
+	if ip := c.IP(); !isLocalIP(ip) {
+		return ip
+	}
+	
+	// Try X-Forwarded-For
+	if forwardedFor := c.Get("x-forwarded-for"); forwardedFor != "" {
+		// Take the first IP if there are multiple
+		if idx := strings.Index(forwardedFor, ","); idx != -1 {
+			return strings.TrimSpace(forwardedFor[:idx])
+		}
+		return forwardedFor
+	}
+	
+	// Finally try X-Client-IP
+	return c.Get("x-client-ip")
+}
+
+// isLocalIP checks if the IP is a localhost address
+func isLocalIP(ip string) bool {
+	return ip == "" || ip == "127.0.0.1" || ip == "::1" || ip == "localhost"
+}
+
+// getPublicIP fetches the public IP using ipify with timeout
+func getPublicIP() string {
+	log.Println("Getting public IP from ipify")
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+	}
+	
+	resp, err := client.Get("https://api.ipify.org")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	
+	return string(body)
 }
 
 func errorHandler(c *fiber.Ctx, err error) error {
