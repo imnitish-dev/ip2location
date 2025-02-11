@@ -10,10 +10,15 @@ func (s *Service) lookupMaxMind(ip net.IP) (*Location, error) {
 		return nil, err
 	}
 
+	var region string
+	if len(record.Subdivisions) > 0 {
+		region = record.Subdivisions[0].Names["en"]
+	}
+
 	location := &Location{
 		Country:     record.Country.Names["en"],
 		City:        record.City.Names["en"],
-		Region:      record.Subdivisions[0].Names["en"],
+		Region:      region,
 		Latitude:    record.Location.Latitude,
 		Longitude:   record.Location.Longitude,
 		CountryCode: record.Country.IsoCode,

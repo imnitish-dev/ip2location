@@ -1,7 +1,9 @@
 package ip2location
 
 import (
+	"fmt"
 	"net"
+	"os"
 	"sync"
 
 	"github.com/ip2location/ip2location-go/v9"
@@ -33,6 +35,15 @@ type Service struct {
 
 // NewService creates a new IP2Location service
 func NewService(provider Provider, dbPath string) (*Service, error) {
+	if dbPath == "" {
+		return nil, fmt.Errorf("database path is empty")
+	}
+
+	// Check if file exists
+	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("database file not found: %s", dbPath)
+	}
+
 	s := &Service{
 		provider: provider,
 	}
@@ -43,6 +54,8 @@ func NewService(provider Provider, dbPath string) (*Service, error) {
 		s.maxmindDB, err = geoip2.Open(dbPath)
 	case IP2LocationProvider:
 		s.ip2locDB, err = ip2location.OpenDB(dbPath)
+	default:
+		return nil, ErrInvalidProvider
 	}
 
 	if err != nil {
@@ -51,7 +64,6 @@ func NewService(provider Provider, dbPath string) (*Service, error) {
 
 	return s, nil
 }
-
 
 func (s *Service) Close() {
 	s.mu.Lock()

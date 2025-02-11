@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 
 	"strings"
 	"sync"
@@ -45,11 +46,17 @@ func loadConfig() (*Config, error) {
 		}
 	}
 
+	// Get database paths with absolute paths
+	workDir, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get working directory: %w", err)
+	}
+
 	config := &Config{
 		Port:            getEnv("PORT", "3000"),
 		Host:            getEnv("HOST", "0.0.0.0"),
-		MaxMindDBPath:   getEnv("MAXMIND_DB_PATH", "./MaxMind.mmdb"),
-		IP2LocationPath: getEnv("IP2LOCATION_DB_PATH", "./IP2LOCATION.BIN"),
+		MaxMindDBPath:   getEnv("MAXMIND_DB_PATH", filepath.Join(workDir, "MaxMind.mmdb")),
+		IP2LocationPath: getEnv("IP2LOCATION_DB_PATH", filepath.Join(workDir, "IP2LOCATION.BIN")),
 		GRPCPort:        getEnv("GRPC_PORT", "50051"),
 	}
 
