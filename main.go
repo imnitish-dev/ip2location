@@ -81,32 +81,34 @@ type App struct {
 
 // NewApp initializes the application
 func NewApp(maxmindPath, ip2locPath string) (*App, error) {
+	var app App
+
 	maxmindService, err := ip2location.NewService(ip2location.MaxMindProvider, maxmindPath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize MaxMind service: %w", err)
+		log.Printf("Warning: Failed to initialize MaxMind service: %v", err)
 	}
+	app.maxmindService = maxmindService
 
 	ip2locService, err := ip2location.NewService(ip2location.IP2LocationProvider, ip2locPath)
 	if err != nil {
-		maxmindService.Close() // Clean up if second init fails
-		return nil, fmt.Errorf("failed to initialize IP2Location service: %w", err)
+		log.Printf("Warning: Failed to initialize IP2Location service: %v", err)
 	}
+	app.ip2locService = ip2locService
 
-	app := &App{
-		maxmindService: maxmindService,
-		ip2locService:  ip2locService,
-		fiber: fiber.New(fiber.Config{
-			ErrorHandler: errorHandler,
-			// Optimize for JSON responses
-			JSONEncoder: json.Marshal,
-			JSONDecoder: json.Unmarshal,
-			// Disable startup message
-			DisableStartupMessage: true,
-		}),
+	app.fiber = fiber.New(fiber.Config{
+		ErrorHandler:          errorHandler,
+		JSONEncoder:          json.Marshal,
+		JSONDecoder:          json.Unmarshal,
+		DisableStartupMessage: true,
+	})
+
+	// Only proceed if at least one service is initialized
+	if app.maxmindService == nil && app.ip2locService == nil {
+		return nil, fmt.Errorf("failed to initialize both MaxMind and IP2Location services")
 	}
 
 	app.setupRoutes()
-	return app, nil
+	return &app, nil
 }
 
 // Close releases all resources
@@ -185,8 +187,6 @@ func (a *App) lookupConcurrent(ip string) (*ip2location.Location, *ip2location.L
 		ip2locLoc   *ip2location.Location
 		maxmindErr  error
 		ip2locErr   error
-		maxmindOnce sync.Once
-		ip2locOnce  sync.Once
 	)
 
 	// Start both lookups concurrently
@@ -195,17 +195,21 @@ func (a *App) lookupConcurrent(ip string) (*ip2location.Location, *ip2location.L
 	// MaxMind lookup
 	go func() {
 		defer wg.Done()
-		maxmindOnce.Do(func() {
+		if a.maxmindService != nil {
 			maxmindLoc, maxmindErr = a.maxmindService.Lookup(ip)
-		})
+		} else {
+			log.Printf("Warning: MaxMind service is not initialized")
+		}
 	}()
 
 	// IP2Location lookup
 	go func() {
 		defer wg.Done()
-		ip2locOnce.Do(func() {
+		if a.ip2locService != nil {
 			ip2locLoc, ip2locErr = a.ip2locService.Lookup(ip)
-		})
+		} else {
+			log.Printf("Warning: IP2Location service is not initialized")
+		}
 	}()
 
 	// Wait with timeout
@@ -220,6 +224,7 @@ func (a *App) lookupConcurrent(ip string) (*ip2location.Location, *ip2location.L
 		// Both lookups completed
 	case <-time.After(2 * time.Second):
 		// Timeout occurred, return whatever we have
+		log.Printf("Warning: Lookup timeout occurred")
 	}
 
 	// Log errors if any
