@@ -78,6 +78,7 @@ type Response struct {
 	MaxMind     *ip2location.Location `json:"maxmind,omitempty"`
 	IP2Location *ip2location.Location `json:"ip2location,omitempty"`
 	DeviceBrowser DeviceInfo `json:"deviceBrowser,omitempty"`
+	Ip string `json:"ip,omitempty"`
 }
 
 // App holds the application dependencies
@@ -282,11 +283,11 @@ func (a *App) handleIp(c *fiber.Ctx) error {
 
 	deviceBrowser := getDeviceInfo(c.Get("User-Agent"))
 
-	fmt.Println("deviceBrowser", deviceBrowser)
 	return c.JSON(Response{
 		MaxMind:     maxmindLoc,
 		IP2Location: ip2locLoc,
 		DeviceBrowser: deviceBrowser,
+		Ip: ip,
 	})
 }
 
